@@ -109,16 +109,6 @@ class lindbladian(object):
 				left_eigenmatrices[0 : return_number], 
 				right_eigenmatrices[0 : return_number])
 
-class activity_biased_lindbladian(lindbladian):
-	"""Constructs matrix representations of activity biased Lindbladians."""
-
-	def __init__(self, parameters):
-		super().__init__(parameters)
-		self.biases = parameters['biases'] * np.ones(len(self.jump_operators))
-
-	def _jump_term(self, index):
-		"""Provides the biased jump term matrix for the indexed operator."""
-		return self.biases[index] * super()._jump_term(index)
 
 class weakly_symmetric_lindbladian(object):
 
