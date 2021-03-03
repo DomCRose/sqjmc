@@ -2,7 +2,7 @@ import math
 import numpy as np
 import scipy.linalg
 
-class spin_1_number_conserved_representation(object):
+class spin_1_number_conserved(object):
 
 	def __init__(self, sites):
 		self.sites = sites
@@ -60,27 +60,90 @@ class spin_1_number_conserved_representation(object):
 				self.projectors[magnetization].append(np.array(eigenspace))
 				self.eigenspace_dimensions[magnetization].append(len(eigenspace))
 
+	def eigenspace_labels(self):
+		eigenspaces = [(0,0)]
+		for magnetization in range(1, 2*self.sites):
+			for quasi_momentum in range(self.sites):
+				eigenspaces.append((magnetization, quasi_momentum))
+		eigenspaces.append((2*self.sites, 0))
+		return eigenspaces
+
 	def project_diagonal(self, operator):
 		"""Projects out the diagonal blocks of an operator."""
 		projected_operator = []
-		for magnetization in range(2*self.sites + 1):
+		projector = self.projectors[0][0]
+		projected_operator.append(projector @ operator @ np.conjugate(projector).T)
+		for magnetization in range(1, 2*self.sites):
 			for quasi_momentum in range(self.sites):
 				projector = self.projectors[magnetization][quasi_momentum]
 				projected_operator.append(projector @ operator 
 										  @ np.conjugate(projector).T)
+		projector = self.projectors[2*self.sites][0]
+		projected_operator.append(projector @ operator @ np.conjugate(projector).T)
 		return projected_operator
 
 	def project_offset_diagonal(self, operator, mag_offset, momentum_offset):
-		"""Projects out the diagonal blocks of an operator."""
+		"""Projects out the blocks of an offset diagonal for an operator."""
 		projected_operator = []
-		for magnetization in range(2*self.sites + 1):
-			for quasi_momentum in range(self.sites):
+		domain_space = []
+		range_space = []
+		if mag_offset == 1:
+			right_projector = np.conjugate(self.projectors[0][0]).T
+			left_projector = self.projectors[mag_offset][momentum_offset]
+			projected_operator.append(np.around(left_projector @ operator 
+												@ right_projector, 15))
+			domain_space.append((0, 0))
+			range_space.append((mag_offset, momentum_offset % self.sites))
+		if mag_offset == 0 and momentum_offset == 0:
+			right_projector = np.conjugate(self.projectors[0][0]).T
+			left_projector = self.projectors[0][0]
+			projected_operator.append(np.around(left_projector @ operator 
+												@ right_projector, 15))
+			domain_space.append((0, 0))
+			range_space.append((0, 0))
+		for magnetization in range(1, 2*self.sites):
+			left_magnetization = magnetization + mag_offset
+			if left_magnetization == 0:
+				right_momentum = (self.sites - momentum_offset) % self.sites
 				right_projector = np.conjugate(
-					self.projectors[magnetization][quasi_momentum]).T
-				left_magnetization = magnetization + mag_offset
-				if 0 <= left_magnetization <= 2*self.sites + 1:
+					self.projectors[magnetization][right_momentum]).T
+				left_projector = self.projectors[0][0]
+				projected_operator.append(np.around(left_projector @ operator 
+													@ right_projector, 15))
+				domain_space.append((magnetization, right_momentum))
+				range_space.append((0, 0))
+			elif 0 < left_magnetization < 2*self.sites:
+				for quasi_momentum in range(self.sites):
+					right_projector = np.conjugate(
+						self.projectors[magnetization][quasi_momentum]).T
 					left_momentum = (quasi_momentum + momentum_offset) % self.sites
 					left_projector = self.projectors[left_magnetization][
-													left_momentum]
-					projected_operator.append(left_projector @ operator @ right_projector)
-		return projected_operator
+													 left_momentum]
+					projected_operator.append(np.around(left_projector @ operator 
+														@ right_projector, 15))
+					domain_space.append((magnetization, quasi_momentum))
+					range_space.append((left_magnetization, left_momentum))
+			elif left_magnetization == 2*self.sites:
+				right_momentum = (self.sites - momentum_offset) % self.sites
+				right_projector = np.conjugate(
+					self.projectors[magnetization][right_momentum]).T
+				left_projector = self.projectors[left_magnetization][0]
+				projected_operator.append(np.around(left_projector @ operator 
+													@ right_projector, 15))
+				domain_space.append((magnetization, right_momentum))
+				range_space.append((left_magnetization, 0))
+		if mag_offset == -1:
+			right_projector = np.conjugate(self.projectors[2*self.sites][0]).T
+			left_projector = self.projectors[2*self.sites + mag_offset][momentum_offset]
+			projected_operator.append(np.around(left_projector @ operator 
+												@ right_projector, 15))
+			domain_space.append((2*self.sites, 0))
+			range_space.append((2*self.sites + mag_offset, momentum_offset % self.sites))
+		if mag_offset == 0 and momentum_offset == 0:
+			right_projector = np.conjugate(self.projectors[2*self.sites][0]).T
+			left_projector = self.projectors[2*self.sites][0]
+			projected_operator.append(np.around(left_projector @ operator 
+												@ right_projector, 15))
+			domain_space.append((2*self.sites, 0))
+			range_space.append((2*self.sites, 0))
+		return (projected_operator, domain_space, range_space)
