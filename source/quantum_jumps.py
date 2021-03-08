@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from scipy import linalg
 
@@ -39,7 +40,16 @@ class symmetrized_jump_trajectory_generator(object):
 		while self.norm > jump_time_random:
 			self.state = evolver @ self.state
 			self.step += 1
+			self.save_step += 1
 			self.norm = linalg.norm(self.state)
+			if self.save_step == self.save_period:
+				self.save_step = 0
+				self.magnetizations.append(self.state_eigenspace[0])
+				self.momenta.append(self.state_eigenspace[1])
+				self.energy.append(
+					np.conjugate(self.state).T 
+					@ self.hamiltonian[self.eigenspaces.index(self.state_eigenspace)] 
+					@ self.state)
 			if self.step == self.steps:
 				break
 
@@ -65,22 +75,67 @@ class symmetrized_jump_trajectory_generator(object):
 		self.norm = 1
 
 
-	def trajectory(self, steps, state, state_eigenspace):
+	def trajectory(self, steps, save_period, state, state_eigenspace):
 		self.state = state
 		self.state_eigenspace = state_eigenspace
 		self.norm = 1
 		self.step = 0
 		self.steps = steps
-		magnetizations = [state_eigenspace[0]]
-		momenta = [state_eigenspace[1]]
-		obs_steps = [0]
+		self.save_period = save_period
+		self.magnetizations = [state_eigenspace[0]]
+		self.momenta = [state_eigenspace[1]]
+		self.energy = [
+			np.conjugate(self.state).T 
+			@ self.hamiltonian[self.eigenspaces.index(self.state_eigenspace)] 
+			@ self.state]
+		self.save_step = 0
 		while self.step < steps:
 			self._evolve()
 			self._jump()
-			magnetizations.append(self.state_eigenspace[0])
-			momenta.append(self.state_eigenspace[1])
-			obs_steps.append(self.step)
-		return magnetizations, momenta, obs_steps
+		magnetizations = np.array(self.magnetizations)
+		momenta = np.array(self.momenta)
+		energy = np.array(self.energy)
+		return magnetizations, momenta, energy
+
+	def stochastic_average(self, trajectories, steps, save_period, 
+						   state, state_eigenspace):
+		magnetizations_average = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		momenta_average = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		energy_average = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		magnetizations_average_prior = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		momenta_average_prior = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		energy_average_prior = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		magnetizations_variance = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		momenta_variance = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		energy_variance = np.zeros(math.ceil(steps / save_period) + 1,
+			dtype = complex)
+		for i in range(trajectories):
+			magnetizations, momenta, energy = self.trajectory(
+				steps, save_period, state, state_eigenspace)
+			magnetizations_average_prior = np.array(magnetizations_average)
+			momenta_average_prior = np.array(momenta_average)
+			energy_average_prior = np.array(energy_average)
+			magnetizations_average += (magnetizations - magnetizations_average)/(i+1)
+			momenta_average += (momenta - momenta_average)/(i+1)
+			energy_average += (energy - energy_average)/(i+1)
+			magnetizations_variance += ((magnetizations - magnetizations_average_prior)
+										* (magnetizations - magnetizations_average))
+			momenta_variance += ((momenta - momenta_average_prior)
+								 * (momenta - momenta_average))
+			energy_variance += ((energy - energy_average_prior)
+								* (energy - energy_average))
+		magnetizations_variance /= (trajectories - 1)
+		momenta_variance /= (trajectories - 1)
+		energy_variance /= (trajectories - 1)
+		return magnetizations_average, momenta_average, energy_average, magnetizations_variance, momenta_variance, energy_variance
 
 
 def expectations(state, observables):
