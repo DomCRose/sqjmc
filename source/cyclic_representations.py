@@ -5,6 +5,11 @@ from scipy import sparse as sp
 
 class spin_1_number_conserved(object):
 
+	"""Constructs symmetry eigenspaces and projection operators.
+
+	For translation invariance with number conservation.
+	"""
+
 	def __init__(self, sites):
 		self.sites = sites
 		self.ternary_components = 3**(np.arange(self.sites)[::-1])
@@ -154,6 +159,12 @@ class spin_1_number_conserved(object):
 
 class spin_1_number_conserved_sparse(object):
 
+	"""Constructs symmetry eigenspaces and projection operators.
+
+	For translation invariance with number conservation. Used sparse
+	matrices at intermediate steps.
+	"""
+
 	def __init__(self, sites):
 		self.sites = sites
 		self.ternary_components = 3**(np.arange(self.sites)[::-1])
@@ -233,11 +244,15 @@ class spin_1_number_conserved_sparse(object):
 		eigenspaces.append((2*self.sites, 0))
 		return eigenspaces
 
-	def project_diagonal(self, operator, sparsity_limit = 0.05):
+	def project_diagonal(self, operator, sparsity_limit = 0):
 		"""Projects out the diagonal blocks of an operator."""
 		projected_operator = []
 		projector = self.projectors[0][0]
-		projected_operator.append(projector @ operator @ projector.getH())
+		total_elements = projector.shape[0]**2
+		projected_block = projector @ operator @ projector.getH()
+		if projected_block.getnnz() > sparsity_limit * total_elements:
+			projected_block = projected_block.toarray()
+		projected_operator.append(projected_block)
 		for magnetization in range(1, 2*self.sites):
 			for quasi_momentum in range(self.sites):
 				projector = self.projectors[magnetization][quasi_momentum]
@@ -247,11 +262,15 @@ class spin_1_number_conserved_sparse(object):
 					projected_block = projected_block.toarray()
 				projected_operator.append(projected_block)
 		projector = self.projectors[2*self.sites][0]
-		projected_operator.append(projector @ operator @ projector.getH())
+		total_elements = projector.shape[0]**2
+		projected_block = projector @ operator @ projector.getH()
+		if projected_block.getnnz() > sparsity_limit * total_elements:
+			projected_block = projected_block.toarray()
+		projected_operator.append(projected_block)
 		return projected_operator
 
 	def project_offset_diagonal(self, operator, mag_offset, momentum_offset,
-								sparsity_limit = 0.05):
+								sparsity_limit = 0):
 		"""Projects out the blocks of an offset diagonal for an operator."""
 		projected_operator = []
 		domain_space = []

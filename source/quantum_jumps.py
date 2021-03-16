@@ -6,6 +6,16 @@ class symmetrized_jump_trajectory_generator(object):
 
 	"""Generates quantum jump trajectories within symmetry eigenspaces.
 
+
+	Tailored to systems with a pair of commuting symmetries. Hamiltonian
+	must be provided as a list of blocks for each eigenspace. Each jump
+	operator must be provided as three lists, in order this give: a list
+	of matrices corresponding to each non-zero block; a list of
+	eigenspace labels corresponding to the space each block in the first
+	list acts on; a list of eigenspace labels corresponding to the
+	eigenspace each block takes the state to. Eigenspaces must be a list 
+	of labels corresponding to the eigenspace of each block in the
+	Hamiltonian.
 	"""
 
 	def __init__(self, model, time_step, eigenspaces):
@@ -18,23 +28,31 @@ class symmetrized_jump_trajectory_generator(object):
 		self._evolver()
 
 	def _effective_hamiltonian(self):
+		"""Constructs the effective Hamiltonian used to evolve the state."""
 		self.effective_hamiltonian = []
+		self.activity_op = []
 		block_index = 0
 		for eigenspace in self.eigenspaces:
 			block = self.hamiltonian[block_index]
+			dimension = len(block)
+			activity_block = np.zeros((dimension, dimension), dtype = complex)
 			for jump in self.jumps:
 				if eigenspace in jump[1]:
 					jump_block = jump[0][jump[1].index(eigenspace)]
 					block -= 0.5j*np.conjugate(jump_block).T @ jump_block
+					activity_block += np.conjugate(jump_block).T @ jump_block
 			block_index += 1
 			self.effective_hamiltonian.append(block)
+			self.activity_op.append(activity_block)
 
 	def _evolver(self):
+		"""Constructs evolution operators within each subspace."""
 		self.evolver = []
 		for block in self.effective_hamiltonian:
 			self.evolver.append(linalg.expm(-1j * self.time_step * block))
 
 	def _evolve(self):
+		"""Evolves the state until a jump occurs."""
 		jump_time_random = np.random.random()
 		evolver = self.evolver[self.eigenspaces.index(self.state_eigenspace)]
 		while self.norm > jump_time_random:
@@ -50,10 +68,15 @@ class symmetrized_jump_trajectory_generator(object):
 					np.conjugate(self.state).T 
 					@ self.hamiltonian[self.eigenspaces.index(self.state_eigenspace)] 
 					@ self.state)
+				self.activity.append(
+					np.conjugate(self.state).T 
+					@ self.activity_op[self.eigenspaces.index(self.state_eigenspace)] 
+					@ self.state)
 			if self.step == self.steps:
 				break
 
 	def _jump(self):
+		"""Samples a jump operator to apply to the state."""
 		jump_probabilities = np.zeros(self.jump_number)
 		index = 0
 		for jump in self.jumps:
@@ -76,6 +99,11 @@ class symmetrized_jump_trajectory_generator(object):
 
 
 	def trajectory(self, steps, save_period, state, state_eigenspace):
+		"""Generates a trajectory sample.
+		
+		Returns samples of the eigenspace indices, expected energy
+		and expected activity rate.
+		"""
 		self.state = state
 		self.state_eigenspace = state_eigenspace
 		self.norm = 1
@@ -88,6 +116,10 @@ class symmetrized_jump_trajectory_generator(object):
 			np.conjugate(self.state).T 
 			@ self.hamiltonian[self.eigenspaces.index(self.state_eigenspace)] 
 			@ self.state]
+		self.activity = [
+			np.conjugate(self.state).T 
+			@ self.activity_op[self.eigenspaces.index(self.state_eigenspace)] 
+			@ self.state]
 		self.save_step = 0
 		while self.step < steps:
 			self._evolve()
@@ -95,48 +127,27 @@ class symmetrized_jump_trajectory_generator(object):
 		magnetizations = np.array(self.magnetizations)
 		momenta = np.array(self.momenta)
 		energy = np.array(self.energy)
-		return magnetizations, momenta, energy
+		activity = np.array(self.activity)
+		return magnetizations, momenta, energy, activity
 
 	def stochastic_average(self, trajectories, steps, save_period, 
 						   state, state_eigenspace):
-		magnetizations_average = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		momenta_average = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		energy_average = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		magnetizations_average_prior = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		momenta_average_prior = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		energy_average_prior = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		magnetizations_variance = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		momenta_variance = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
-		energy_variance = np.zeros(math.ceil(steps / save_period) + 1,
-			dtype = complex)
+		"""Finds average and variance over trajectory samples.
+		
+		Returns averages and variances for the eigenspaces indices, 
+		expected energy and expected activity rate. Variances are
+		calculated as trajectories are generated using Welford's 
+		online algorithm https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm.
+		"""
+		averages = np.zeros((4, math.ceil(steps / save_period) + 1), dtype = complex)
+		averages_prior = np.zeros((4, math.ceil(steps / save_period) + 1), 
+								  dtype = complex)
+		variances = np.zeros((4, math.ceil(steps / save_period) + 1), dtype = complex)
 		for i in range(trajectories):
-			magnetizations, momenta, energy = self.trajectory(
-				steps, save_period, state, state_eigenspace)
-			magnetizations_average_prior = np.array(magnetizations_average)
-			momenta_average_prior = np.array(momenta_average)
-			energy_average_prior = np.array(energy_average)
-			magnetizations_average += (magnetizations - magnetizations_average)/(i+1)
-			momenta_average += (momenta - momenta_average)/(i+1)
-			energy_average += (energy - energy_average)/(i+1)
-			magnetizations_variance += ((magnetizations - magnetizations_average_prior)
-										* (magnetizations - magnetizations_average))
-			momenta_variance += ((momenta - momenta_average_prior)
-								 * (momenta - momenta_average))
-			energy_variance += ((energy - energy_average_prior)
-								* (energy - energy_average))
-		magnetizations_variance /= (trajectories - 1)
-		momenta_variance /= (trajectories - 1)
-		energy_variance /= (trajectories - 1)
-		return magnetizations_average, momenta_average, energy_average, magnetizations_variance, momenta_variance, energy_variance
-
-
-def expectations(state, observables):
-	return np.einsum("j,ijk,k->i", np.conjugate(state).T, observables, state)
+			trajectory_data = self.trajectory(steps, save_period, state, state_eigenspace)
+			averages_prior = np.array(averages)
+			averages += (trajectory_data - averages)/(i+1)
+			variances += ((trajectory_data - averages_prior)
+							 * (trajectory_data - averages))
+		variances /= (trajectories - 1)
+		return np.real(np.concatenate((averages, variances)))

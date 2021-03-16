@@ -106,8 +106,6 @@ class model_sp(object):
 		self.spins = spins
 		self.interaction = interaction_strength
 		self.depolarization = depolarization_strength
-		self.symmetry_transformer = cyclic_representations.spin_1_number_conserved(
-			self.spins)
 		self._hamiltonian()
 		self._jump_operators()
 
@@ -127,7 +125,7 @@ class model_sp(object):
 			left_site_x = right_site_x
 			left_site_y = right_site_y
 			left_site_z = right_site_z
-		self.hamiltonian *= self.interaction
+		self.hamiltonian.multiply(self.interaction)
 
 	def _jump_operators(self):
 		self.jumps = [sp.csc_matrix((3**self.spins, 3**self.spins), dtype = complex)
@@ -246,6 +244,7 @@ class symmetrized_model_sp(object):
 				jumps[quasi_momentum] += coefficient * z_op
 				jumps[quasi_momentum + self.spins] += coefficient * up_op
 				jumps[quasi_momentum + 2*self.spins] += coefficient * down_op
+		self.symmetrized_jump_nnz = [jump.getnnz() for jump in jumps]
 		self.jumps = []
 		for quasi_momentum in range(self.spins):
 			self.jumps.append(self.symmetry_transformer.project_offset_diagonal(
